@@ -1,26 +1,6 @@
 {
   "name": "pure-node",
   "version": "1.0.0",
-  "description": "",
-  "main": "app.js",
-  "scripts": {
-    "dev:server": "nodemon --watch './**/*.ts' --exec 'ts-node' main.ts",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "lint": "eslint --fix main.js",
-    "format": "prettier -w ."
-  },
-  "author": "",
-  "license": "ISC",
-  "devDependencies": {
-    "@typescript-eslint/eslint-plugin": "^5.2.0",
-    "@typescript-eslint/parser": "^5.2.0",
-    "eslint": "^7.32.0",
-    "eslint-config-airbnb-base": "^14.2.1",
-    "eslint-config-prettier": "^8.3.0",
-    "eslint-plugin-import": "^2.25.2",
-    "eslint-plugin-prettier": "^4.0.0",
-    "nodemon": "^2.0.14",
-    "prettier": "^2.4.1",
-    "ts-node": "^10.4.0"
-  }
+  "private": true,
+  "description": "Order pipeline: API, core processor, and worker services on Kafka and Redis."
 }
