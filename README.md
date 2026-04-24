@@ -1,55 +1,81 @@
-# pure-node
+# Event-Driven Microservices with Node.js, Kafka and Redis
 
-Production-style event-driven order processing with Node.js, Kafka, and Redis.
+Production-style event-driven order pipeline built with Node.js, Kafka, and Redis.
 
-## What this project does
+## Project summary
 
-This system accepts orders over HTTP and processes them asynchronously:
+This project demonstrates how to design and run a resilient microservice workflow for order processing:
 
-- `api` receives `POST /orders` and publishes `order.created`
-- `core` consumes `order.created`, applies retry and idempotency, then publishes:
-  - `order.processed` on success
-  - `order.failed` after max retries
-- `worker` consumes:
-  - `order.processed` to send notifications
-  - `order.failed` to log dead-letter events
+- An HTTP API accepts orders and publishes events
+- A core processor handles retries, idempotency, and DLQ routing
+- A worker service handles downstream notification processing
 
-## Architecture at a glance
+It is structured to show practical backend engineering decisions that are important in real systems: loose coupling, failure handling, duplicate protection, and observable event flow.
+
+## What was implemented
+
+- **Service decomposition** into `api`, `core`, and `worker`
+- **Asynchronous communication** over Kafka topics (`order.created`, `order.processed`, `order.failed`)
+- **Idempotency layer** in Redis to prevent duplicate terminal processing
+- **Retry with backoff** for transient failures in core and worker
+- **Dead-letter flow (DLQ)** for permanently failed orders
+- **Containerized local stack** with Docker Compose (Kafka, Zookeeper, Redis, services)
+- **Production-oriented defaults** (env-based behavior, clean startup and health checks)
+
+## Architecture
 
 ```text
-Client --> API --> Kafka(order.created) --> Core --> Kafka(order.processed) --> Worker
-                                           |
-                                           +--> Kafka(order.failed) ---------> Worker (DLQ log)
+Client
+  |
+  v
+API (POST /orders)
+  |
+  v
+Kafka topic: order.created
+  |
+  v
+Core service
+  |-- success --> Kafka topic: order.processed --> Worker (notification)
+  |
+  `-- max retries exceeded --> Kafka topic: order.failed --> Worker (DLQ logging)
 ```
 
-## Prerequisites
+## Tech stack
+
+- Node.js
+- Express
+- Kafka (`kafkajs`)
+- Redis (`ioredis`)
+- Docker + Docker Compose
+
+## Local setup
+
+### Prerequisites
 
 - Docker
 - Docker Compose
 
-## Quick start
-
-Start all services:
-
-```bash
-docker compose up --build
-```
-
-Run in background:
+### Start
 
 ```bash
 docker compose up --build -d
 ```
 
-Stop:
+### Stop
 
 ```bash
 docker compose down
 ```
 
-## Verify everything is working
+### View logs
 
-1) Check health:
+```bash
+docker compose logs -f api core worker
+```
+
+## Quick verification
+
+### 1) Health check
 
 ```bash
 curl http://localhost:3000/health
@@ -61,7 +87,7 @@ Expected:
 {"status":"ok","service":"api"}
 ```
 
-2) Send a valid order:
+### 2) Submit an order
 
 ```bash
 curl -X POST http://localhost:3000/orders \
@@ -69,79 +95,64 @@ curl -X POST http://localhost:3000/orders \
   -d '{"product":"Keyboard","quantity":2}'
 ```
 
-Expected API response:
+Expected:
 
 ```json
 {"message":"Order accepted","orderId":"ord_..."}
 ```
 
-3) Check service logs:
+### 3) Confirm pipeline execution in logs
 
-```bash
-docker compose logs -f api core worker
-```
+You should observe:
 
-You should see:
+- `api` publishes `order.created`
+- `core` consumes and publishes `order.processed`
+- `worker` consumes and sends notification
 
-- `api` publishing `order.created`
-- `core` publishing `order.processed`
-- `worker` sending notification
+## Reliability features
 
-## Useful test scenarios
+### Idempotency
 
-Core retry + DLQ scenario (non-production mode):
+The core service writes terminal order state to Redis:
 
-```bash
-curl -X POST http://localhost:3000/orders \
-  -H "Content-Type: application/json" \
-  -d '{"product":"fail","quantity":1}'
-```
-
-Worker retry scenario (non-production mode):
-
-```bash
-curl -X POST http://localhost:3000/orders \
-  -H "Content-Type: application/json" \
-  -d '{"product":"fail-notify","quantity":1}'
-```
-
-## Idempotency behavior
-
-The `core` service stores terminal processing state in Redis:
-
-- successful orders are marked as completed
+- completed orders are marked as done
 - permanently failed orders are marked as failed
 
-If Kafka redelivers the same order, `core` skips it when a terminal marker exists.
+If Kafka redelivers the same order, core skips it when terminal state exists.
+
+### Retries and DLQ
+
+- Core and worker both retry failed operations with bounded attempts and delay
+- On terminal core failure, event is sent to `order.failed` for DLQ handling
 
 ## Environment variables
 
 ### API
 
-- `PORT` (default: `3000`)
-- `KAFKA_BROKERS` (default: `localhost:9092`)
+- `PORT` (default `3000`)
+- `KAFKA_BROKERS` (default `localhost:9092`)
 
 ### Core
 
-- `KAFKA_BROKERS` (default: `localhost:9092`)
-- `REDIS_HOST` (default: `localhost`)
-- `REDIS_PORT` (default: `6379`)
-- `IDEMPOTENCY_TTL_SECONDS` (default: `86400`)
-- `CORE_MAX_RETRIES` (default: `3`)
-- `CORE_RETRY_DELAY_MS` (default: `500`)
+- `KAFKA_BROKERS` (default `localhost:9092`)
+- `REDIS_HOST` (default `localhost`)
+- `REDIS_PORT` (default `6379`)
+- `IDEMPOTENCY_TTL_SECONDS` (default `86400`)
+- `CORE_MAX_RETRIES` (default `3`)
+- `CORE_RETRY_DELAY_MS` (default `500`)
 
 ### Worker
 
-- `KAFKA_BROKERS` (default: `localhost:9092`)
-- `WORKER_MAX_RETRIES` (default: `3`)
-- `WORKER_RETRY_DELAY_MS` (default: `500`)
+- `KAFKA_BROKERS` (default `localhost:9092`)
+- `WORKER_MAX_RETRIES` (default `3`)
+- `WORKER_RETRY_DELAY_MS` (default `500`)
 
-### General
+### Runtime mode
 
-- `NODE_ENV=production` disables built-in simulation triggers (`fail`, `fail-notify`)
-- `KAFKAJS_NO_PARTITIONER_WARNING=1` suppresses KafkaJS partitioner warning
+- `NODE_ENV=production` disables simulation-only failure triggers
+- `KAFKAJS_NO_PARTITIONER_WARNING=1` suppresses partitioner migration warning
 
-## Project structure
+## Repository layout
 
 ```text
 services/
